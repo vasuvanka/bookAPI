@@ -4,20 +4,24 @@ import (
 	"log"
 	"net/http"
 
-	"./route"
-
+	"./src/route"
 	"github.com/gorilla/mux"
 )
 
 func main() {
-	route.Initialize()
-	router := mux.NewRouter().StrictSlash(true)
+	router := mux.NewRouter()
 	router.HandleFunc("/", route.Welcome).Methods("GET")
-	bookRouter := router.PathPrefix("/api/book").Subrouter()
-	bookRouter.HandleFunc("/", route.GetAllBooks).Methods("GET")
-	bookRouter.HandleFunc("/", route.CreateBook).Methods("POST")
-	bookRouter.HandleFunc("/{id}", route.GetBookById).Methods("GET")
-	bookRouter.HandleFunc("/{id}", route.UpdateBookById).Methods("PUT")
-	bookRouter.HandleFunc("/{id}", route.RemoveBookById).Methods("DELETE")
+	authRouter := router.PathPrefix("/auth").Subrouter().StrictSlash(true)
+	authRouter.HandleFunc("/login", route.Login).Methods("POST")
+	authRouter.HandleFunc("/register", route.Register).Methods("POST")
+	apiRouter := router.PathPrefix("/api").Subrouter().StrictSlash(true)
+
+	bookRouter := apiRouter.PathPrefix("/book").Subrouter()
+
+	bookRouter.HandleFunc("/", route.ValidateMiddleware(route.GetAllBooks)).Methods("GET")
+	bookRouter.HandleFunc("/", route.ValidateMiddleware(route.CreateBook)).Methods("POST")
+	bookRouter.HandleFunc("/{id}", route.ValidateMiddleware(route.GetBookById)).Methods("GET")
+	bookRouter.HandleFunc("/{id}", route.ValidateMiddleware(route.UpdateBookById)).Methods("PUT")
+	bookRouter.HandleFunc("/{id}", route.ValidateMiddleware(route.RemoveBookById)).Methods("DELETE")
 	log.Fatal(http.ListenAndServe(":3000", router))
 }

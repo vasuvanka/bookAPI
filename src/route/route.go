@@ -2,34 +2,24 @@ package route
 
 import (
 	"encoding/json"
-	"log"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"gopkg.in/mgo.v2/bson"
 
-	"github.com/gorilla/mux"
-
-	"gopkg.in/mgo.v2"
-
 	"../model"
+	jwt "github.com/dgrijalva/jwt-go"
+	"github.com/gorilla/context"
+	"github.com/gorilla/mux"
 )
 
-const MONGO_URL = "localhost"
-
-var sess *mgo.Session
+const AUTH_KEY = "auth_key"
+const JWT_SECRET = "m;}YW-JCq5:h^.uu"
 
 type Message struct {
 	Message string `json:"message"`
 	Code    int    `json:"status"`
-}
-
-func Initialize() {
-	session, err := mgo.Dial(MONGO_URL)
-	if err != nil {
-		log.Fatal("cannot dial mongo", err)
-	}
-	sess = session.Copy()
-	defer session.Close()
 }
 
 func Welcome(w http.ResponseWriter, r *http.Request) {
@@ -38,7 +28,7 @@ func Welcome(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetAllBooks(w http.ResponseWriter, r *http.Request) {
-	err, books := model.All(sess)
+	err, books := model.All()
 	if err != nil {
 		WithError(w, Message{"invalid request", http.StatusBadRequest})
 		return
@@ -47,7 +37,7 @@ func GetAllBooks(w http.ResponseWriter, r *http.Request) {
 }
 func GetBookById(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	err, book := model.ById(sess, params["id"])
+	err, book := model.ById(params["id"])
 	if err != nil {
 		WithError(w, Message{"invalid request", http.StatusBadRequest})
 		return
@@ -62,7 +52,7 @@ func CreateBook(w http.ResponseWriter, r *http.Request) {
 		WithError(w, Message{"invalid request", http.StatusBadRequest})
 		return
 	}
-	err, b := model.Save(sess, book)
+	err, b := model.Save(book)
 	if err != nil {
 		WithError(w, Message{"invalid request", http.StatusBadRequest})
 		return
@@ -78,7 +68,7 @@ func UpdateBookById(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	book.ID = bson.ObjectIdHex(params["id"])
-	err, b := model.Update(sess, book)
+	err, b := model.Update(book)
 	if err != nil {
 		WithError(w, Message{"invalid request", http.StatusBadRequest})
 		return
@@ -87,7 +77,7 @@ func UpdateBookById(w http.ResponseWriter, r *http.Request) {
 }
 func RemoveBookById(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	err, book := model.Delete(sess, params["id"])
+	err, book := model.Delete(params["id"])
 	if err != nil {
 		WithError(w, Message{"invalid request", http.StatusBadRequest})
 		return
@@ -111,4 +101,33 @@ func WithError(w http.ResponseWriter, m Message) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(m.Code)
 	w.Write(response)
+}
+
+func ValidateMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		authorizationHeader := req.Header.Get("authorization")
+		if authorizationHeader != "" {
+			bearerToken := strings.Split(authorizationHeader, " ")
+			if len(bearerToken) == 2 {
+				token, error := jwt.Parse(bearerToken[1], func(token *jwt.Token) (interface{}, error) {
+					if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+						return nil, fmt.Errorf("There was an error")
+					}
+					return []byte(model.JWT_SECRET), nil
+				})
+				if error != nil {
+					WithError(w, Message{error.Error(), 401})
+					return
+				}
+				if token.Valid {
+					context.Set(req, AUTH_KEY, token.Claims)
+					next(w, req)
+				} else {
+					WithError(w, Message{"invalid token", 401})
+				}
+			}
+		} else {
+			WithError(w, Message{"invalid token", 401})
+		}
+	})
 }
