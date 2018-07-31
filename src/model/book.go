@@ -1,16 +1,18 @@
 package model
 
 import (
+	"log"
 	"time"
 
+	"../shared"
 	"github.com/gorilla/mux"
 	mgo "gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 )
 
 const (
-	COLLECTION = "books"
-	DB         = "test"
+	COLLECTION_BOOK = "books"
+	DB              = "test"
 )
 
 type Config struct {
@@ -38,67 +40,87 @@ func NewError(text string) error {
 	return errorString{text}
 }
 
-func All(session *mgo.Session) (error, []Book) {
+func All() (error, []Book) {
+	session := shared.GetSession()
+	if session == nil {
+		log.Fatal("session null")
+	}
 	var books []Book
-	c := session.DB(DB).C(COLLECTION)
+	c := session.DB(DB).C(COLLECTION_BOOK)
 	if err := c.Find(bson.M{}).All(&books); err != nil {
+		session.Close()
 		return err, nil
 	}
+	session.Close()
 	return nil, books
 }
 
-func ById(session *mgo.Session, id string) (error, Book) {
+func ById(id string) (error, Book) {
 	var book Book
-	c := session.DB(DB).C(COLLECTION)
+	session := shared.GetSession()
+	c := session.DB(DB).C(COLLECTION_BOOK)
 	if !isValidObjectId(id) {
+		session.Close()
 		return NewError("invalid objectID"), Book{}
 	}
 	if err := c.FindId(bson.ObjectIdHex(id)).One(&book); err != nil {
+		session.Close()
 		return err, Book{}
 	}
+	session.Close()
 	return nil, book
 }
 
-func Save(session *mgo.Session, book Book) (error, Book) {
+func Save(book Book) (error, Book) {
 	book.ID = bson.NewObjectId()
 	book.When = time.Now()
-	c := session.DB(DB).C(COLLECTION)
+	session := shared.GetSession()
+	c := session.DB(DB).C(COLLECTION_BOOK)
 	if err := c.Insert(book); err != nil {
+		session.Close()
 		return err, Book{}
 	}
+	session.Close()
 	return nil, book
 }
 
-func Delete(session *mgo.Session, id string) (error, Book) {
+func Delete(id string) (error, Book) {
 	var book Book
 	var err error
-	c := session.DB(DB).C(COLLECTION)
+	session := shared.GetSession()
+	c := session.DB(DB).C(COLLECTION_BOOK)
 	if !isValidObjectId(id) {
+		session.Close()
 		return NewError("invalid objectID"), Book{}
 	}
 
-	if err, book = ById(session, id); err != nil {
+	if err, book = ById(id); err != nil {
+		session.Close()
 		return err, Book{}
 	}
 
 	if err := c.RemoveId(bson.ObjectIdHex(id)); err != nil {
+		session.Close()
 		return err, Book{}
 	}
-
+	session.Close()
 	return nil, book
 
 }
 
-func Update(session *mgo.Session, book Book) (error, Book) {
-	c := session.DB(DB).C(COLLECTION)
+func Update(book Book) (error, Book) {
+	session := shared.GetSession()
+	c := session.DB(DB).C(COLLECTION_BOOK)
 	if !isValidObjectId(book.ID.Hex()) {
+		session.Close()
 		return NewError("invalid objectID"), Book{}
 	}
 	book.When = time.Now()
 	if err := c.UpdateId(book.ID, bson.M{"$set": book}); err != nil {
+		session.Close()
 		return err, Book{}
 	}
-	return ById(session, book.ID.Hex())
+	return ById(book.ID.Hex())
 }
 
 func isValidObjectId(id string) bool {
